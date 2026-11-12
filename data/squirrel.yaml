@@ -33,6 +33,8 @@ style:
   # horizontal is Deprecated since 0.36, Squirrel 0.15, removed since 1.0.1
   candidate_list_layout: stacked  # stacked | linear
   text_orientation: horizontal  # horizontal | vertical
+  # Keep horizontal linear candidates on a single line instead of wrapping
+  single_line: false
   inline_preedit: true
   # Whether to embed selected candidate as text in input field
   inline_candidate: false
@@ -49,6 +51,9 @@ style:
   hilited_corner_radius: 0
   border_height: -2
   border_width: -2
+  # Optional explicit padding overriding border_width/border_height + corner_radius
+  #padding_width: 6
+  #padding_height: 5
   # Space between candidates in stacked layout
   line_spacing: 5
   # Space between preedit and candidates in non-inline mode

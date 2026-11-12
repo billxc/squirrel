@@ -160,7 +160,11 @@ final class SquirrelView: NSView {
       let candidate = candidateRanges[i]
       if i == hilightedIndex {
         if candidate.length > 0 && theme.highlightedBackColor != nil {
-          highlightedPath = drawPath(highlightedRange: candidate, backgroundRect: backgroundRect, preeditRect: preeditRect, containingRect: containingRect, extraExpansion: 0)?.mutableCopy()
+          if theme.isSingleLineLinear && preeditRange.length == 0 {
+            highlightedPath = singleLinePillPath(range: candidate, backgroundRect: backgroundRect, theme: theme)
+          } else {
+            highlightedPath = drawPath(highlightedRange: candidate, backgroundRect: backgroundRect, preeditRect: preeditRect, containingRect: containingRect, extraExpansion: 0)?.mutableCopy()
+          }
         }
       } else {
         if candidate.length > 0 && theme.candidateBackColor != nil {
@@ -210,7 +214,7 @@ final class SquirrelView: NSView {
     }
 
     NSBezierPath.defaultLineWidth = 0
-    backgroundPath = drawSmoothLines(rectVertex(of: backgroundRect), straightCorner: Set(), alpha: 0.3 * theme.cornerRadius, beta: 1.4 * theme.cornerRadius)
+    backgroundPath = makeBackgroundPath(rect: backgroundRect, cornerRadius: theme.cornerRadius)
 
     self.layer?.sublayers = nil
     let backPath = backgroundPath?.mutableCopy()
@@ -342,6 +346,25 @@ final class SquirrelView: NSView {
 }
 
 private extension SquirrelView {
+  func makeBackgroundPath(rect: NSRect, cornerRadius: CGFloat) -> CGPath? {
+    if 2 * cornerRadius >= min(rect.width, rect.height) && rect.width > 0 && rect.height > 0 {
+      let radius = min(cornerRadius, min(rect.width, rect.height) / 2)
+      return CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+    }
+    return drawSmoothLines(rectVertex(of: rect), straightCorner: Set(), alpha: 0.3 * cornerRadius, beta: 1.4 * cornerRadius)
+  }
+
+  func singleLinePillPath(range: NSRange, backgroundRect: NSRect, theme: SquirrelTheme) -> CGMutablePath? {
+    guard let textRange = convert(range: range) else { return nil }
+    let textRect = contentRect(range: textRange)
+    let insetY = max(2, theme.edgeInset.height - 3)
+    var pillRect = NSRect(x: textRect.minX + theme.edgeInset.width - 4, y: insetY,
+                          width: textRect.width + 8, height: max(4, backgroundRect.height - insetY * 2))
+    pillRect.size.width = min(pillRect.width, backgroundRect.width - pillRect.minX - 2)
+    let pillRadius = min(theme.hilitedCornerRadius, min(pillRect.width, pillRect.height) / 2)
+    return CGPath(roundedRect: pillRect, cornerWidth: pillRadius, cornerHeight: pillRadius, transform: nil).mutableCopy()
+  }
+
   // Soften corner radius when adjacent points are very close.
   func sign(_ number: NSPoint) -> NSPoint {
     if number.length >= 2 {

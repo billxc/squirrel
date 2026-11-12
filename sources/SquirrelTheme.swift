@@ -57,6 +57,8 @@ final class SquirrelTheme {
   private(set) var shadowSize: CGFloat = 0
   private(set) var borderWidth: CGFloat = 0
   private(set) var borderHeight: CGFloat = 0
+  private(set) var paddingWidth: CGFloat?
+  private(set) var paddingHeight: CGFloat?
   private(set) var linespace: CGFloat = 0
   private(set) var preeditLinespace: CGFloat = 0
   private(set) var baseOffset: CGFloat = 0
@@ -66,6 +68,7 @@ final class SquirrelTheme {
   private(set) var mutualExclusive = false
   private(set) var linear = false
   private(set) var vertical = false
+  private(set) var singleLine = false
   private(set) var inlinePreedit = false
   private(set) var inlineCandidate = false
   private(set) var showPaging = false
@@ -162,7 +165,7 @@ final class SquirrelTheme {
   private(set) lazy var firstParagraphStyle: NSParagraphStyle = {
     let style = NSParagraphStyle.default.mutableCopy() as! NSMutableParagraphStyle
     style.paragraphSpacing = linespace / 2
-    style.paragraphSpacingBefore = preeditLinespace / 2 + hilitedCornerRadius / 2
+    style.paragraphSpacingBefore = paddingHeight != nil ? 0 : preeditLinespace / 2 + hilitedCornerRadius / 2
     return style as NSParagraphStyle
   }()
   private(set) lazy var paragraphStyle: NSParagraphStyle = {
@@ -178,9 +181,14 @@ final class SquirrelTheme {
     return style as NSParagraphStyle
   }()
   private(set) lazy var edgeInset: NSSize = if self.vertical {
-    NSSize(width: borderHeight + cornerRadius, height: borderWidth + cornerRadius)
+    NSSize(width: paddingHeight ?? (borderHeight + cornerRadius),
+           height: paddingWidth ?? (borderWidth + cornerRadius))
   } else {
-    NSSize(width: borderWidth + cornerRadius, height: borderHeight + cornerRadius)
+    NSSize(width: paddingWidth ?? (borderWidth + cornerRadius),
+           height: paddingHeight ?? (borderHeight + cornerRadius))
+  }
+  var isSingleLineLinear: Bool {
+    singleLine && linear && !vertical
   }
   private(set) lazy var borderLineWidth: CGFloat = min(borderHeight, borderWidth)
   private(set) var candidateFormat: String {
@@ -208,6 +216,7 @@ final class SquirrelTheme {
   func load(config: SquirrelConfig, dark: Bool) {
     linear ?= config.getString("style/candidate_list_layout").map { $0 == "linear" }
     vertical ?= config.getString("style/text_orientation").map { $0 == "vertical" }
+    singleLine ?= config.getBool("style/single_line")
     inlinePreedit ?= config.getBool("style/inline_preedit")
     inlineCandidate ?= config.getBool("style/inline_candidate")
     translucency ?= config.getBool("style/translucency")
@@ -224,6 +233,8 @@ final class SquirrelTheme {
     surroundingExtraExpansion ?= config.getDouble("style/surrounding_extra_expansion")
     borderHeight ?= config.getDouble("style/border_height")
     borderWidth ?= config.getDouble("style/border_width")
+    paddingHeight = config.getDouble("style/padding_height")
+    paddingWidth = config.getDouble("style/padding_width")
     linespace ?= config.getDouble("style/line_spacing")
     preeditLinespace ?= config.getDouble("style/spacing")
     baseOffset ?= config.getDouble("style/base_offset")
@@ -265,6 +276,7 @@ final class SquirrelTheme {
         // Per-color-scheme settings override global style settings.
         linear ?= config.getString("\(prefix)/candidate_list_layout").map { $0 == "linear" }
         vertical ?= config.getString("\(prefix)/text_orientation").map { $0 == "vertical" }
+        singleLine ?= config.getBool("\(prefix)/single_line")
         inlinePreedit ?= config.getBool("\(prefix)/inline_preedit")
         inlineCandidate ?= config.getBool("\(prefix)/inline_candidate")
         translucency ?= config.getBool("\(prefix)/translucency")
@@ -286,6 +298,8 @@ final class SquirrelTheme {
         surroundingExtraExpansion ?= config.getDouble("\(prefix)/surrounding_extra_expansion")
         borderHeight ?= config.getDouble("\(prefix)/border_height")
         borderWidth ?= config.getDouble("\(prefix)/border_width")
+        paddingHeight ?= config.getDouble("\(prefix)/padding_height")
+        paddingWidth ?= config.getDouble("\(prefix)/padding_width")
         linespace ?= config.getDouble("\(prefix)/line_spacing")
         preeditLinespace ?= config.getDouble("\(prefix)/spacing")
         baseOffset ?= config.getDouble("\(prefix)/base_offset")
