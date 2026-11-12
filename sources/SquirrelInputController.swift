@@ -27,6 +27,8 @@ final class SquirrelInputController: IMKInputController {
   private var chordTimer: Timer?
   private var chordDuration: TimeInterval = 0
   private var currentApp: String = ""
+  private var clientAppearance: NSAppearance?
+  private var clientAppearanceResolved = false
 
   // swiftlint:disable:next cyclomatic_complexity
   override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
@@ -166,6 +168,8 @@ final class SquirrelInputController: IMKInputController {
 
   override func activateServer(_ sender: Any!) {
     self.client ?= sender as? IMKTextInput
+    clientAppearance = Self.resolveClientAppearance(self.client)
+    clientAppearanceResolved = self.client != nil
     var keyboardLayout = NSApp.squirrelAppDelegate.config?.getString("keyboard_layout") ?? ""
     if keyboardLayout == "last" || keyboardLayout == "" {
       keyboardLayout = ""
@@ -198,6 +202,8 @@ final class SquirrelInputController: IMKInputController {
 
   override init!(server: IMKServer!, delegate: Any!, client: Any!) {
     self.client = client as? IMKTextInput
+    self.clientAppearance = Self.resolveClientAppearance(self.client)
+    self.clientAppearanceResolved = self.client != nil
     super.init(server: server, delegate: delegate, client: client)
     createSession()
 
@@ -222,6 +228,8 @@ final class SquirrelInputController: IMKInputController {
     hidePalettes()
     commitComposition(sender)
     client = nil
+    clientAppearance = nil
+    clientAppearanceResolved = false
   }
 
   override func hidePalettes() {
@@ -610,12 +618,29 @@ private extension SquirrelInputController {
     guard let client = client else { return }
     var inputPos = NSRect()
     client.attributes(forCharacterIndex: 0, lineHeightRectangle: &inputPos)
+    if !clientAppearanceResolved {
+      clientAppearance = Self.resolveClientAppearance(client)
+      clientAppearanceResolved = true
+    }
     if let panel = NSApp.squirrelAppDelegate.panel {
       panel.position = inputPos
       panel.inputController = self
+      panel.clientAppearance = clientAppearance
       panel.update(preedit: preedit, selRange: selRange, caretPos: caretPos, candidates: candidates, comments: comments, labels: labels,
                    highlighted: highlighted, page: page, lastPage: lastPage, update: true)
     }
+  }
+
+  private static func resolveClientAppearance(_ client: IMKTextInput?) -> NSAppearance? {
+    guard let obj = client as AnyObject? else { return nil }
+    for name in ["viewEffectiveAppearance", "windowEffectiveAppearance"] {
+      let sel = NSSelectorFromString(name)
+      if obj.responds(to: sel),
+         let appearance = obj.perform(sel)?.takeUnretainedValue() as? NSAppearance {
+        return appearance
+      }
+    }
+    return nil
   }
 
   private func handleASCIIModeToggle(_ notification: Notification) {
