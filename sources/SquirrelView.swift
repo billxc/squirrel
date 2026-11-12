@@ -72,7 +72,12 @@ final class SquirrelView: NSView {
     true
   }
   var isDark: Bool {
-    NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+  }
+
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    needsDisplay = true
   }
 
   func convert(range: NSRange) -> NSTextRange? {

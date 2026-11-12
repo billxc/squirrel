@@ -11,6 +11,7 @@ final class SquirrelPanel: NSPanel {
   private let view: SquirrelView
   private let back: NSView
   var inputController: SquirrelInputController?
+  var clientAppearance: NSAppearance?
 
   var position: NSRect
   private var screenRect: NSRect = .zero
@@ -178,6 +179,7 @@ final class SquirrelPanel: NSPanel {
       return
     }
 
+    syncAppearance()
     let theme = view.currentTheme
     currentScreen()
 
@@ -349,16 +351,24 @@ private extension SquirrelPanel {
     return maxWidth
   }
 
+  func syncAppearance() {
+    let targetName: NSAppearance.Name
+    if view.lightTheme.native || view.darkTheme.available {
+      let source = clientAppearance ?? NSApp.effectiveAppearance
+      targetName = source.bestMatch(from: [.aqua, .darkAqua]) ?? .aqua
+    } else {
+      targetName = .aqua
+    }
+    if self.appearance?.name != targetName {
+      self.appearance = NSAppearance(named: targetName)
+    }
+  }
+
   // swiftlint:disable:next cyclomatic_complexity
   func show() {
     currentScreen()
+    syncAppearance()
     let theme = view.currentTheme
-    if theme.native || view.darkTheme.available {
-      self.appearance = NSApp.effectiveAppearance
-    } else {
-      // user configured only a light theme, set window appearance to light.
-      self.appearance = NSAppearance(named: .aqua)
-    }
 
     view.textView.textContainerInset = theme.edgeInset
 
@@ -508,7 +518,7 @@ private extension SquirrelPanel {
       var backFrame = subviewFrame
       backFrame.size.width += theme.pagingOffset
       back.frame = backFrame
-      back.appearance = NSApp.effectiveAppearance
+      back.appearance = self.appearance
       back.isHidden = false
     } else {
       back.isHidden = true
@@ -521,6 +531,7 @@ private extension SquirrelPanel {
   }
 
   func show(status message: String) {
+    syncAppearance()
     let theme = view.currentTheme
     let text = NSMutableAttributedString(string: message, attributes: theme.attrs)
     text.addAttribute(.paragraphStyle, value: theme.paragraphStyle, range: NSRange(location: 0, length: text.length))
