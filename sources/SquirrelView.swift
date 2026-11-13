@@ -226,7 +226,7 @@ final class SquirrelView: NSView {
       }
     }
     let panelLayer = shapeFromPath(path: backPath)
-    panelLayer.fillColor = (theme.native && theme.translucency ? NSColor.clear : theme.backgroundColor).cgColor
+    panelLayer.fillColor = theme.backgroundColor.cgColor
     let panelLayerMask = shapeFromPath(path: backgroundPath)
     panelLayer.mask = panelLayerMask
     self.layer?.addSublayer(panelLayer)

@@ -499,25 +499,20 @@ private extension SquirrelPanel {
 
     // Subviews must read the post-rotation bounds; Cocoa adjusts the origin and swaps dimensions in vertical mode.
     let subviewFrame = contentView!.bounds
+    var foregroundFrame = subviewFrame
     if #available(macOS 26.0, *), let glass = back as? NSGlassEffectView {
+      let container = theme.translucency ? glass.contentView! : contentView!
+      if view.superview !== container {
+        container.addSubview(view)
+        container.addSubview(view.textView)
+      }
       if theme.translucency {
-        if glass.contentView == nil {
-          glass.contentView = NSView()
-        }
-        let contents = glass.contentView!
-        if view.superview !== contents {
-          contents.addSubview(view)
-          contents.addSubview(view.textView)
-        }
-        contents.frame = NSRect(origin: .zero, size: subviewFrame.size)
-      } else if view.superview !== contentView {
-        contentView!.addSubview(view)
-        contentView!.addSubview(view.textView)
+        foregroundFrame.origin = .zero
       }
     }
-    view.frame = subviewFrame
+    view.frame = foregroundFrame
 
-    var textFrame = subviewFrame
+    var textFrame = foregroundFrame
     textFrame.size.width -= theme.pagingOffset
     textFrame.origin.x += theme.pagingOffset
     view.textView.frame = textFrame
@@ -533,6 +528,7 @@ private extension SquirrelPanel {
           : min(theme.cornerRadius, min(subviewFrame.width, subviewFrame.height) / 2)
         glass.cornerRadius = radius
         glass.layer?.cornerRadius = radius
+        glass.layer?.cornerCurve = .continuous
         glass.layer?.masksToBounds = true
         glass.layer?.mask = theme.pagingOffset > 0 ? view.shape : nil
       } else {
@@ -587,6 +583,7 @@ private extension SquirrelPanel {
   static func makeBackgroundView() -> NSView {
     if #available(macOS 26.0, *) {
       let glassView = NSGlassEffectView()
+      glassView.contentView = NSView()
       glassView.style = .regular
       return glassView
     } else {

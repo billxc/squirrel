@@ -32,7 +32,10 @@ final class SquirrelTheme {
   private(set) var memorizeSize = true
   private var colorSpace: RimeColorSpace = .sRGB
 
-  var backgroundColor: NSColor = .windowBackgroundColor
+  private var _backgroundColor: NSColor = .windowBackgroundColor
+  var backgroundColor: NSColor {
+    native && translucency ? .clear : _backgroundColor
+  }
   var highlightedPreeditColor: NSColor?
   var highlightedBackColor: NSColor? = .selectedTextBackgroundColor
   var preeditBackgroundColor: NSColor?
@@ -244,7 +247,7 @@ final class SquirrelTheme {
         native = false
         let prefix = "preset_color_schemes/\(colorScheme)"
         colorSpace = .from(name: config.getString("\(prefix)/color_space") ?? "")
-        backgroundColor ?= config.getColor("\(prefix)/back_color", inSpace: colorSpace)
+        _backgroundColor ?= config.getColor("\(prefix)/back_color", inSpace: colorSpace)
         highlightedPreeditColor = config.getColor("\(prefix)/hilited_back_color", inSpace: colorSpace)
         highlightedBackColor = config.getColor("\(prefix)/hilited_candidate_back_color", inSpace: colorSpace) ?? highlightedPreeditColor
         preeditBackgroundColor = config.getColor("\(prefix)/preedit_back_color", inSpace: colorSpace)
