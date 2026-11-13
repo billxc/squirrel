@@ -505,9 +505,7 @@ private extension SquirrelPanel {
     view.textView.frame = textFrame
 
     if theme.translucency {
-      var backFrame = subviewFrame
-      backFrame.size.width += theme.pagingOffset
-      back.frame = backFrame
+      back.frame = subviewFrame
       back.appearance = NSApp.effectiveAppearance
       back.isHidden = false
     } else {
