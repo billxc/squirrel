@@ -43,7 +43,9 @@ final class SquirrelPanel: NSPanel {
     self.isOpaque = false
     self.backgroundColor = .clear
     back.wantsLayer = true
-    back.layer?.mask = view.shape
+    if #unavailable(macOS 26.0) {
+      back.layer?.mask = view.shape
+    }
     let contentView = NSView()
     contentView.addSubview(back)
     contentView.addSubview(view)
@@ -497,9 +499,20 @@ private extension SquirrelPanel {
 
     // Subviews must read the post-rotation bounds; Cocoa adjusts the origin and swaps dimensions in vertical mode.
     let subviewFrame = contentView!.bounds
-    view.frame = subviewFrame
+    var foregroundFrame = subviewFrame
+    if #available(macOS 26.0, *), let glass = back as? NSGlassEffectView {
+      let container = theme.translucency ? glass.contentView! : contentView!
+      if view.superview !== container {
+        container.addSubview(view)
+        container.addSubview(view.textView)
+      }
+      if theme.translucency {
+        foregroundFrame.origin = .zero
+      }
+    }
+    view.frame = foregroundFrame
 
-    var textFrame = subviewFrame
+    var textFrame = foregroundFrame
     textFrame.size.width -= theme.pagingOffset
     textFrame.origin.x += theme.pagingOffset
     view.textView.frame = textFrame
@@ -508,7 +521,19 @@ private extension SquirrelPanel {
       var backFrame = subviewFrame
       backFrame.size.width += theme.pagingOffset
       back.frame = backFrame
-      back.appearance = NSApp.effectiveAppearance
+      if #available(macOS 26.0, *), let glass = back as? NSGlassEffectView {
+        back.appearance = nil
+        let radius = theme.pagingOffset > 0
+          ? 0
+          : min(theme.cornerRadius, min(subviewFrame.width, subviewFrame.height) / 2)
+        glass.cornerRadius = radius
+        glass.layer?.cornerRadius = radius
+        glass.layer?.cornerCurve = .continuous
+        glass.layer?.masksToBounds = true
+        glass.layer?.mask = theme.pagingOffset > 0 ? view.shape : nil
+      } else {
+        back.appearance = NSApp.effectiveAppearance
+      }
       back.isHidden = false
     } else {
       back.isHidden = true
@@ -558,7 +583,8 @@ private extension SquirrelPanel {
   static func makeBackgroundView() -> NSView {
     if #available(macOS 26.0, *) {
       let glassView = NSGlassEffectView()
-      glassView.style = .clear
+      glassView.contentView = NSView()
+      glassView.style = .regular
       return glassView
     } else {
       let visualEffectView = NSVisualEffectView()
