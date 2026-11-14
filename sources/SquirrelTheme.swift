@@ -66,6 +66,7 @@ final class SquirrelTheme {
   private(set) var mutualExclusive = false
   private(set) var linear = false
   private(set) var vertical = false
+  private(set) var singleLine = false
   private(set) var inlinePreedit = false
   private(set) var inlineCandidate = false
   private(set) var showPaging = false
@@ -182,6 +183,9 @@ final class SquirrelTheme {
   } else {
     NSSize(width: borderWidth + cornerRadius, height: borderHeight + cornerRadius)
   }
+  var isSingleLineLinear: Bool {
+    singleLine && linear && !vertical
+  }
   private(set) lazy var borderLineWidth: CGFloat = min(borderHeight, borderWidth)
   private(set) var candidateFormat: String {
     get {
@@ -208,6 +212,7 @@ final class SquirrelTheme {
   func load(config: SquirrelConfig, dark: Bool) {
     linear ?= config.getString("style/candidate_list_layout").map { $0 == "linear" }
     vertical ?= config.getString("style/text_orientation").map { $0 == "vertical" }
+    singleLine ?= config.getBool("style/single_line")
     inlinePreedit ?= config.getBool("style/inline_preedit")
     inlineCandidate ?= config.getBool("style/inline_candidate")
     translucency ?= config.getBool("style/translucency")
@@ -265,6 +270,7 @@ final class SquirrelTheme {
         // Per-color-scheme settings override global style settings.
         linear ?= config.getString("\(prefix)/candidate_list_layout").map { $0 == "linear" }
         vertical ?= config.getString("\(prefix)/text_orientation").map { $0 == "vertical" }
+        singleLine ?= config.getBool("\(prefix)/single_line")
         inlinePreedit ?= config.getBool("\(prefix)/inline_preedit")
         inlineCandidate ?= config.getBool("\(prefix)/inline_candidate")
         translucency ?= config.getBool("\(prefix)/translucency")

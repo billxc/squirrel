@@ -27,6 +27,8 @@ final class SquirrelInputController: IMKInputController {
   private var chordTimer: Timer?
   private var chordDuration: TimeInterval = 0
   private var currentApp: String = ""
+  private(set) var currentCompositionKey: String = ""
+  private var expandedCompositionKey: String = ""
 
   // swiftlint:disable:next cyclomatic_complexity
   override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
@@ -100,6 +102,13 @@ final class SquirrelInputController: IMKInputController {
 
       let keyCode = event.keyCode
       var keyChars = event.charactersIgnoringModifiers
+      if modifiers.isDisjoint(with: [.control, .option, .shift]),
+         let panel = NSApp.squirrelAppDelegate.panel,
+         panel.isVisible,
+         panel.handleCandidateKey(keyCode: keyCode, keyChar: keyChars?.first) {
+        handled = true
+        break
+      }
       let capitalModifiers = modifiers.isSubset(of: [.shift, .capsLock])
       if let code = keyChars?.first,
          (capitalModifiers && !code.isLetter) || (!capitalModifiers && !code.isASCII) {
@@ -307,6 +316,52 @@ final class SquirrelInputController: IMKInputController {
 
   deinit {
     destroySession()
+  }
+}
+
+extension SquirrelInputController {
+  func selectGlobalCandidate(_ index: Int) -> Bool {
+    NSApp.squirrelAppDelegate.panel?.collapseCandidateList()
+    let success = rimeAPI.select_candidate(session, index)
+    if success {
+      rimeUpdate()
+    }
+    return success
+  }
+
+  func highlightGlobalCandidate(_ index: Int) -> Bool {
+    let success = rimeAPI.highlight_candidate(session, index)
+    if success {
+      rimeUpdate()
+    }
+    return success
+  }
+
+  func markExpandedSession() {
+    expandedCompositionKey = currentCompositionKey
+  }
+
+  func refreshCurrentMenu() -> Bool {
+    guard session != 0 else { return false }
+    rimeUpdate()
+    return true
+  }
+
+  func fetchCandidates(from start: Int, count: Int) -> (candidates: [String], hasMore: Bool) {
+    guard session != 0, count > 0 else { return ([], false) }
+    var iter = RimeCandidateListIterator()
+    guard rimeAPI.candidate_list_from_index(session, &iter, Int32(start)) else { return ([], false) }
+    defer { rimeAPI.candidate_list_end(&iter) }
+    var items = [String]()
+    items.reserveCapacity(count)
+    for _ in 0..<count {
+      guard rimeAPI.candidate_list_next(&iter) else {
+        return (items, false)
+      }
+      items.append(iter.candidate.text.map { String(cString: $0) } ?? "")
+    }
+    let hasMore = rimeAPI.candidate_list_next(&iter)
+    return (items, hasMore)
   }
 }
 
@@ -547,12 +602,19 @@ private extension SquirrelInputController {
       }
       // swiftlint:enable identifier_name
       let page = Int(ctx.menu.page_no)
+      let pageSize = max(1, Int(ctx.menu.page_size))
       let lastPage = ctx.menu.is_last_page
+      let highlighted = Int(ctx.menu.highlighted_candidate_index)
+      if syncExpandedPanel(selStart: Int(ctx.composition.sel_start), hasCandidates: !candidates.isEmpty,
+                           globalHighlighted: page * pageSize + highlighted) {
+        _ = rimeAPI.free_context(&ctx)
+        return
+      }
 
       let selRange = NSRange(location: start.utf16Offset(in: preedit), length: preedit.utf16.distance(from: start, to: end))
       showPanel(preedit: inlinePreedit ? "" : preedit, selRange: selRange, caretPos: caretPos.utf16Offset(in: preedit),
-                candidates: candidates, comments: comments, labels: labels, highlighted: Int(ctx.menu.highlighted_candidate_index),
-                page: page, lastPage: lastPage)
+                candidates: candidates, comments: comments, labels: labels, highlighted: highlighted,
+                page: page, pageSize: pageSize, lastPage: lastPage)
       _ = rimeAPI.free_context(&ctx)
     } else {
       hidePalettes()
@@ -606,16 +668,29 @@ private extension SquirrelInputController {
   }
 
   // swiftlint:disable:next function_parameter_count
-  func showPanel(preedit: String, selRange: NSRange, caretPos: Int, candidates: [String], comments: [String], labels: [String], highlighted: Int, page: Int, lastPage: Bool) {
+  func showPanel(preedit: String, selRange: NSRange, caretPos: Int, candidates: [String], comments: [String], labels: [String], highlighted: Int, page: Int, pageSize: Int, lastPage: Bool) {
     guard let client = client else { return }
     var inputPos = NSRect()
     client.attributes(forCharacterIndex: 0, lineHeightRectangle: &inputPos)
     if let panel = NSApp.squirrelAppDelegate.panel {
       panel.position = inputPos
       panel.inputController = self
+      panel.pageSize = pageSize
       panel.update(preedit: preedit, selRange: selRange, caretPos: caretPos, candidates: candidates, comments: comments, labels: labels,
                    highlighted: highlighted, page: page, lastPage: lastPage, update: true)
     }
+  }
+
+  func syncExpandedPanel(selStart: Int, hasCandidates: Bool, globalHighlighted: Int) -> Bool {
+    let rawInput = rimeAPI.get_input(session).map { String(cString: $0) } ?? ""
+    currentCompositionKey = "\(rawInput)|\(selStart)"
+    guard let panel = NSApp.squirrelAppDelegate.panel, panel.isExpanded else { return false }
+    if !hasCandidates || currentCompositionKey != expandedCompositionKey {
+      panel.collapseCandidateList()
+      return false
+    }
+    panel.updateExpandedHighlight(globalHighlighted)
+    return true
   }
 
   private func handleASCIIModeToggle(_ notification: Notification) {

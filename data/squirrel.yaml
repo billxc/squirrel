@@ -33,6 +33,8 @@ style:
   # horizontal is Deprecated since 0.36, Squirrel 0.15, removed since 1.0.1
   candidate_list_layout: stacked  # stacked | linear
   text_orientation: horizontal  # horizontal | vertical
+  # Keep horizontal linear candidates on one line; Down opens an expanded list
+  single_line: false
   inline_preedit: true
   # Whether to embed selected candidate as text in input field
   inline_candidate: false
