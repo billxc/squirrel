@@ -131,6 +131,14 @@ final class SquirrelInputController: IMKInputController {
     return success
   }
 
+  func highlightCandidate(_ index: Int) -> Bool {
+    let success = rimeAPI.highlight_candidate_on_current_page(session, index)
+    if success {
+      rimeUpdate()
+    }
+    return success
+  }
+
   // swiftlint:disable:next identifier_name
   func page(up: Bool) -> Bool {
     var handled = false

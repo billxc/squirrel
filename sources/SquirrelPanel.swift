@@ -32,6 +32,8 @@ final class SquirrelPanel: NSPanel {
   private var page: Int = 0
   private var lastPage: Bool = true
   private var pagingUp: Bool?
+  private var visibleCandidates = 0..<0
+  private var candidatePageStarts = [Int]()
 
   init(position: NSRect) {
     self.position = position
@@ -69,19 +71,17 @@ final class SquirrelPanel: NSPanel {
     switch event.type {
     case .leftMouseDown:
       let (index, _, pagingUp) =  view.click(at: mousePosition())
-      if let pagingUp {
-        self.pagingUp = pagingUp
-      } else {
-        self.pagingUp = nil
-      }
-      if let index, index >= 0 && index < candidates.count {
-        self.index = index
+      let candidateIndex = index.map { $0 + (view.currentTheme.isSingleLineLinear ? visibleCandidates.lowerBound : 0) }
+      self.pagingUp = pagingUp
+      if let candidateIndex, candidateIndex >= 0 && candidateIndex < candidates.count {
+        self.index = candidateIndex
       }
     case .leftMouseUp:
       let (index, preeditIndex, pagingUp) = view.click(at: mousePosition())
+      let candidateIndex = index.map { $0 + (view.currentTheme.isSingleLineLinear ? visibleCandidates.lowerBound : 0) }
 
       if let pagingUp, pagingUp == self.pagingUp {
-        _ = inputController?.page(up: pagingUp)
+        page(up: pagingUp)
       } else {
         self.pagingUp = nil
       }
@@ -92,8 +92,8 @@ final class SquirrelPanel: NSPanel {
           _ = inputController?.moveCaret(forward: false)
         }
       }
-      if let index, index == self.index && index >= 0 && index < candidates.count {
-        _ = inputController?.selectCandidate(index)
+      if let candidateIndex, candidateIndex == self.index && candidateIndex >= 0 && candidateIndex < candidates.count {
+        _ = inputController?.selectCandidate(candidateIndex)
       }
     case .mouseEntered:
       acceptsMouseMovedEvents = true
@@ -105,17 +105,19 @@ final class SquirrelPanel: NSPanel {
       pagingUp = nil
     case .mouseMoved:
       let (index, _, _) = view.click(at: mousePosition())
-      if let index = index, cursorIndex != index && index >= 0 && index < candidates.count {
-        update(preedit: preedit, selRange: selRange, caretPos: caretPos, candidates: candidates, comments: comments, labels: labels, highlighted: index, page: page, lastPage: lastPage, update: false)
+      let candidateIndex = index.map { $0 + (view.currentTheme.isSingleLineLinear ? visibleCandidates.lowerBound : 0) }
+      if let candidateIndex, cursorIndex != candidateIndex && candidateIndex >= 0 && candidateIndex < candidates.count {
+        update(preedit: preedit, selRange: selRange, caretPos: caretPos, candidates: candidates,
+               comments: comments, labels: labels, highlighted: candidateIndex, page: page, lastPage: lastPage, update: false)
       }
     case .scrollWheel:
       if event.phase == .began {
         scrollDirection = .zero
       } else if event.phase == .ended || (event.phase == .init(rawValue: 0) && event.momentumPhase != .init(rawValue: 0)) {
         if abs(scrollDirection.dx) > abs(scrollDirection.dy) && abs(scrollDirection.dx) > 10 {
-          _ = inputController?.page(up: (scrollDirection.dx < 0) == vertical)
+          page(up: (scrollDirection.dx < 0) == vertical)
         } else if abs(scrollDirection.dx) < abs(scrollDirection.dy) && abs(scrollDirection.dy) > 10 {
-          _ = inputController?.page(up: scrollDirection.dy > 0)
+          page(up: scrollDirection.dy > 0)
         }
         scrollDirection = .zero
       } else if event.phase == .init(rawValue: 0) && event.momentumPhase == .init(rawValue: 0) {
@@ -129,7 +131,7 @@ final class SquirrelPanel: NSPanel {
           scrollDirection = .zero
         }
         if abs(scrollDirection.dy) > 10 {
-          _ = inputController?.page(up: scrollDirection.dy > 0)
+          page(up: scrollDirection.dy > 0)
           scrollDirection = .zero
         }
       } else {
@@ -152,6 +154,12 @@ final class SquirrelPanel: NSPanel {
   // swiftlint:disable:next cyclomatic_complexity function_parameter_count
   func update(preedit: String, selRange: NSRange, caretPos: Int, candidates: [String], comments: [String], labels: [String], highlighted index: Int, page: Int, lastPage: Bool, update: Bool) {
     if update {
+      if self.candidates != candidates || self.page != page {
+        visibleCandidates = max(0, index)..<max(0, index)
+        candidatePageStarts.removeAll()
+      } else if !visibleCandidates.contains(index) {
+        visibleCandidates = max(0, index)..<max(0, index)
+      }
       self.preedit = preedit
       self.selRange = selRange
       self.caretPos = caretPos
@@ -204,7 +212,10 @@ final class SquirrelPanel: NSPanel {
     }
 
     var candidateRanges = [NSRange]()
-    for i in 0..<candidates.count {
+    let firstCandidate = theme.isSingleLineLinear ? visibleCandidates.lowerBound : 0
+    let availableWidth = maxTextWidth() - theme.pagingOffset
+    var candidateWidth: CGFloat = 0
+    for i in firstCandidate..<candidates.count {
       let attrs = i == index ? theme.highlightedAttrs : theme.attrs
       let labelAttrs = i == index ? theme.labelHighlightedAttrs : theme.labelAttrs
       var commentAttrs = i == index ? theme.commentHighlightedAttrs : theme.commentAttrs
@@ -249,7 +260,12 @@ final class SquirrelPanel: NSPanel {
       }
 
       let lineSeparator = NSAttributedString(string: linear ? "  " : "\n", attributes: attrs)
-      if i > 0 {
+      let addedWidth = line.size().width + (candidateRanges.isEmpty ? 0 : lineSeparator.size().width)
+      if theme.isSingleLineLinear && !candidateRanges.isEmpty && candidateWidth + addedWidth > availableWidth {
+        break
+      }
+      candidateWidth += addedWidth
+      if i > firstCandidate {
         text.append(lineSeparator)
       }
       let str = lineSeparator.mutableCopy() as! NSMutableAttributedString
@@ -268,6 +284,9 @@ final class SquirrelPanel: NSPanel {
         let labelWidth = labelString.boundingRect(with: .zero, options: [.usesLineFragmentOrigin]).width
         paragraphStyleCandidate.headIndent = labelWidth
       }
+      if theme.isSingleLineLinear {
+        paragraphStyleCandidate.lineBreakMode = .byTruncatingTail
+      }
       line.addAttribute(.paragraphStyle, value: paragraphStyleCandidate, range: NSRange(location: 0, length: line.length))
 
       candidateRanges.append(NSRange(location: text.length, length: line.length))
@@ -278,7 +297,9 @@ final class SquirrelPanel: NSPanel {
     view.textView.setLayoutOrientation(vertical ? .vertical : .horizontal)
 
     // Force TextKit 2 layout before measuring wrapped text and highlight bounds.
-    let textWidth = maxTextWidth()
+    let textWidth = theme.isSingleLineLinear ? availableWidth : maxTextWidth()
+    view.textContainer.maximumNumberOfLines = theme.isSingleLineLinear && preeditRange.length == 0 ? 1 : 0
+    view.textContainer.lineBreakMode = theme.isSingleLineLinear ? .byTruncatingTail : .byWordWrapping
     let maxTextHeight = vertical ? screenRect.width - theme.edgeInset.width * 2 : screenRect.height - theme.edgeInset.height * 2
     view.textContainer.size = NSSize(width: textWidth, height: maxTextHeight)
     view.textLayoutManager.ensureLayout(for: view.textLayoutManager.documentRange)
@@ -286,7 +307,11 @@ final class SquirrelPanel: NSPanel {
     // Keep very tall wrapped text from auto-scrolling past the first line.
     view.textView.scrollToBeginningOfDocument(nil)
 
-    view.drawView(candidateRanges: candidateRanges, hilightedIndex: index, preeditRange: preeditRange, highlightedPreeditRange: highlightedPreeditRange, canPageUp: page > 0, canPageDown: !lastPage)
+    visibleCandidates = firstCandidate..<(firstCandidate + candidateRanges.count)
+    view.drawView(candidateRanges: candidateRanges, hilightedIndex: index - firstCandidate,
+                  preeditRange: preeditRange, highlightedPreeditRange: highlightedPreeditRange,
+                  canPageUp: page > 0 || firstCandidate > 0,
+                  canPageDown: !lastPage || visibleCandidates.upperBound < candidates.count)
     show()
   }
 
@@ -320,6 +345,21 @@ final class SquirrelPanel: NSPanel {
 }
 
 private extension SquirrelPanel {
+  func page(up isUp: Bool) {
+    if view.currentTheme.isSingleLineLinear {
+      if isUp && visibleCandidates.lowerBound > 0 {
+        _ = inputController?.highlightCandidate(candidatePageStarts.popLast() ?? 0)
+        return
+      }
+      if !isUp && visibleCandidates.upperBound < candidates.count {
+        candidatePageStarts.append(visibleCandidates.lowerBound)
+        _ = inputController?.highlightCandidate(visibleCandidates.upperBound)
+        return
+      }
+    }
+    _ = inputController?.page(up: isUp)
+  }
+
   func mousePosition() -> NSPoint {
     var point = NSEvent.mouseLocation
     point = self.convertPoint(fromScreen: point)
@@ -340,7 +380,7 @@ private extension SquirrelPanel {
     let theme = view.currentTheme
     let font: NSFont = theme.font
     let fontScale = font.pointSize / 12
-    let textWidthRatio = min(1, 1 / (vertical ? 4 : 3) + fontScale / 12)
+    let textWidthRatio = theme.isSingleLineLinear ? 0.8 : min(1, 1 / (vertical ? 4 : 3) + fontScale / 12)
     let maxWidth = if vertical {
       screenRect.height * textWidthRatio - theme.edgeInset.height * 2
     } else {
@@ -362,7 +402,7 @@ private extension SquirrelPanel {
 
     view.textView.textContainerInset = theme.edgeInset
 
-    var textWidth = maxTextWidth()
+    var textWidth = maxTextWidth() - (theme.isSingleLineLinear ? theme.pagingOffset : 0)
     // Measure natural text height before constraining the panel.
     view.textContainer.size = NSSize(width: textWidth, height: .greatestFiniteMagnitude)
 
@@ -374,6 +414,9 @@ private extension SquirrelPanel {
     view.textView.bounds.origin = .zero
 
     var contentRect = view.contentRect
+    if theme.isSingleLineLinear {
+      contentRect.size.width = min(contentRect.width, textWidth)
+    }
 
     // Compute the largest size possible for a giant panel
     var naturalPanelSize = NSSize.zero
