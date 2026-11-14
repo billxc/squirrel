@@ -22,6 +22,165 @@ extension NSAttributedString.Key {
   static let noBreak = NSAttributedString.Key("noBreak")
 }
 
+final class CandidateGridView: NSView {
+  struct Cell {
+    let globalIndex: Int
+    let text: String
+    let frame: NSRect
+    let textWidth: CGFloat
+  }
+
+  struct GridRow {
+    let minY: CGFloat
+    var cells: [Cell]
+  }
+
+  var rowHeight: CGFloat {
+    max(28, ceil(theme.font.ascender - theme.font.descender) + 4)
+  }
+  static let maxVisibleRows = 5
+  static let horizontalInset: CGFloat = 6
+  static let labelGutter: CGFloat = 14
+  static let minColumnUnit: CGFloat = 60
+  static let maxItemsPerRow = 9
+
+  private(set) var rows: [GridRow] = []
+  private(set) var candidates: [String] = []
+  private var indexMap: [Int: (row: Int, col: Int)] = [:]
+  var highlightedIndex: Int = 0 {
+    didSet {
+      if oldValue != highlightedIndex {
+        needsDisplay = true
+      }
+    }
+  }
+  var theme = SquirrelTheme()
+
+  override var isFlipped: Bool { true }
+
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    needsDisplay = true
+  }
+
+  func updateLayout(candidates: [String], width: CGFloat, theme: SquirrelTheme) {
+    self.candidates = candidates
+    self.theme = theme
+    rows.removeAll(keepingCapacity: true)
+    indexMap.removeAll(keepingCapacity: true)
+
+    let usableWidth = max(120, width - Self.horizontalInset * 2)
+    let numUnitCols = max(1, min(Self.maxItemsPerRow, Int(floor(usableWidth / Self.minColumnUnit))))
+    let colUnit = usableWidth / CGFloat(numUnitCols)
+    let maxTextWidth = max(24, usableWidth - Self.labelGutter - 8)
+
+    var usedCols = 0
+    var rowIndex = 0
+    var currentCells = [Cell]()
+
+    for (idx, raw) in candidates.enumerated() {
+      let text = raw.precomposedStringWithCanonicalMapping
+      let rawWidth = ceil((text as NSString).size(withAttributes: theme.attrs).width)
+      let textWidth = min(rawWidth, maxTextWidth)
+      let neededWidth = Self.labelGutter + textWidth + 12
+      let span = min(numUnitCols, max(1, Int(ceil(neededWidth / colUnit))))
+
+      if !currentCells.isEmpty && (usedCols + span > numUnitCols || currentCells.count >= Self.maxItemsPerRow) {
+        rows.append(GridRow(minY: CGFloat(rowIndex) * rowHeight, cells: currentCells))
+        for col in currentCells.indices {
+          indexMap[currentCells[col].globalIndex] = (rowIndex, col)
+        }
+        rowIndex += 1
+        usedCols = 0
+        currentCells.removeAll(keepingCapacity: true)
+      }
+
+      let minX = Self.horizontalInset + CGFloat(usedCols) * colUnit
+      let cellFrame = NSRect(x: minX, y: CGFloat(rowIndex) * rowHeight, width: CGFloat(span) * colUnit, height: rowHeight)
+      currentCells.append(Cell(globalIndex: idx, text: text, frame: cellFrame, textWidth: textWidth))
+      usedCols += span
+    }
+
+    if !currentCells.isEmpty {
+      rows.append(GridRow(minY: CGFloat(rowIndex) * rowHeight, cells: currentCells))
+      for col in currentCells.indices {
+        indexMap[currentCells[col].globalIndex] = (rowIndex, col)
+      }
+    }
+
+    let totalHeight = max(rowHeight, CGFloat(rows.count) * rowHeight)
+    frame = NSRect(x: 0, y: 0, width: width, height: totalHeight)
+    needsDisplay = true
+  }
+
+  func location(of globalIndex: Int) -> (row: Int, col: Int)? {
+    indexMap[globalIndex]
+  }
+
+  func candidateIndex(at point: NSPoint) -> Int? {
+    guard point.x >= 0, point.x <= bounds.width, point.y >= 0 else { return nil }
+    let rowIdx = Int(floor(point.y / rowHeight))
+    guard rows.indices.contains(rowIdx) else { return nil }
+    for cell in rows[rowIdx].cells where point.x >= cell.frame.minX - 4 && point.x < cell.frame.maxX {
+      return cell.globalIndex
+    }
+    return nil
+  }
+
+  override func draw(_ dirtyRect: NSRect) {
+    guard !rows.isEmpty else { return }
+    let activeRow = indexMap[highlightedIndex]?.row
+    let firstRow = max(0, Int(floor(dirtyRect.minY / rowHeight)))
+    let lastRow = min(rows.count - 1, Int(ceil(dirtyRect.maxY / rowHeight)))
+    guard firstRow <= lastRow else { return }
+
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.lineBreakMode = .byTruncatingTail
+
+    let font = theme.font
+    let labelFont = theme.labelFont
+    let textLineHeight = font.ascender - font.descender
+    let textYOffset = (rowHeight - textLineHeight) / 2
+    let baselineOffset = (font.pointSize - labelFont.pointSize) / 2.5
+    let labelYOffset = textYOffset + font.ascender - baselineOffset - labelFont.ascender
+
+    for rowIdx in firstRow...lastRow {
+      let row = rows[rowIdx]
+      for (col, cell) in row.cells.enumerated() {
+        let isHighlighted = cell.globalIndex == highlightedIndex
+        if isHighlighted, let highlightColor = theme.highlightedBackColor {
+          let pillX = max(2, cell.frame.minX - 4)
+          let pillWidth = min(Self.labelGutter + cell.textWidth + 9, bounds.width - pillX - 2)
+          let pillRect = NSRect(x: pillX, y: row.minY + 2, width: pillWidth, height: rowHeight - 4)
+          let radius = min(theme.hilitedCornerRadius, min(pillRect.width, pillRect.height) / 2)
+          let pill = NSBezierPath(roundedRect: pillRect, xRadius: radius, yRadius: radius)
+          highlightColor.setFill()
+          pill.fill()
+        }
+        if rowIdx == activeRow {
+          let labelAttrs = isHighlighted ? theme.labelHighlightedAttrs : theme.labelAttrs
+          ("\(col + 1)" as NSString).draw(
+            at: NSPoint(x: cell.frame.minX + 1, y: row.minY + labelYOffset),
+            withAttributes: labelAttrs
+          )
+        }
+        var textAttrs = isHighlighted ? theme.highlightedAttrs : theme.attrs
+        textAttrs[.paragraphStyle] = paragraph
+        let drawRect = NSRect(
+          x: cell.frame.minX + Self.labelGutter,
+          y: row.minY + textYOffset,
+          width: cell.textWidth + 2,
+          height: textLineHeight + 2
+        )
+        (cell.text as NSString).draw(
+          in: drawRect,
+          withAttributes: textAttrs
+        )
+      }
+    }
+  }
+}
+
 final class SquirrelView: NSView {
   let textView: NSTextView
 
@@ -31,6 +190,7 @@ final class SquirrelView: NSView {
   var preeditRange: NSRange = .empty
   var canPageUp: Bool = false
   var canPageDown: Bool = false
+  var isExpanded = false
   var highlightedPreeditRange: NSRange = .empty
   var separatorWidth: CGFloat = 0
   var shape = CAShapeLayer()
@@ -134,10 +294,14 @@ final class SquirrelView: NSView {
     var highlightedPath: CGMutablePath?
     var highlightedPreeditPath: CGMutablePath?
     let theme = currentTheme
+    if theme.isSingleLineLinear && isExpanded {
+      drawExpandedBackground(theme: theme)
+      return
+    }
 
     var containingRect = self.bounds
     containingRect.size.width -= theme.pagingOffset
-    let backgroundRect = containingRect
+    let backgroundRect = theme.isSingleLineLinear ? bounds : containingRect
 
     var preeditRect = NSRect.zero
     if preeditRange.length > 0, let preeditTextRange = convert(range: preeditRange) {
@@ -279,7 +443,7 @@ final class SquirrelView: NSView {
       }
       panelLayer.addSublayer(layer)
     }
-    panelLayer.setAffineTransform(CGAffineTransform(translationX: theme.pagingOffset, y: 0))
+    panelLayer.setAffineTransform(CGAffineTransform(translationX: theme.isSingleLineLinear ? 0 : theme.pagingOffset, y: 0))
     let panelPath = CGMutablePath()
     panelPath.addPath(backgroundPath!, transform: panelLayer.affineTransform().scaledBy(x: 1, y: -1).translatedBy(x: 0, y: -self.bounds.height))
 
@@ -311,7 +475,8 @@ final class SquirrelView: NSView {
       return (nil, nil, true)
     }
     if let path = shape.path, path.contains(clickPoint) {
-      var point = NSPoint(x: clickPoint.x - textView.textContainerInset.width - currentTheme.pagingOffset,
+      let pagingInset = currentTheme.isSingleLineLinear ? 0 : currentTheme.pagingOffset
+      var point = NSPoint(x: clickPoint.x - textView.textContainerInset.width - pagingInset,
                           y: clickPoint.y - textView.textContainerInset.height)
       let fragment = textLayoutManager.textLayoutFragment(for: point)
       if let fragment = fragment {
@@ -342,6 +507,45 @@ final class SquirrelView: NSView {
 }
 
 private extension SquirrelView {
+  func drawExpandedBackground(theme: SquirrelTheme) {
+    layer?.sublayers = nil
+    let outline = drawSmoothLines(rectVertex(of: bounds), straightCorner: [],
+                                  alpha: 0.3 * theme.cornerRadius, beta: 1.4 * theme.cornerRadius)
+    shape.path = outline
+    let background = shapeFromPath(path: outline)
+    background.fillColor = theme.backgroundColor.cgColor
+    if let border = theme.borderColor, theme.borderLineWidth > 0 {
+      background.strokeColor = border.cgColor
+      background.lineWidth = theme.borderLineWidth * 2
+    }
+    layer?.addSublayer(background)
+    let (button, downButton, upButton) = expansionLayer(theme: theme)
+    layer?.addSublayer(button)
+    downPath = downButton
+    upPath = upButton
+  }
+
+  func expansionLayer(theme: SquirrelTheme) -> (CAShapeLayer, CGPath?, CGPath?) {
+    let button = CAShapeLayer()
+    guard theme.showPaging && (canPageUp || canPageDown) else { return (button, nil, nil) }
+    let left = bounds.maxX - theme.pagingOffset
+    let height = isExpanded ? min(28, bounds.height) : bounds.height
+    let center = NSPoint(x: left + theme.pagingOffset / 2, y: height / 2)
+    let direction: CGFloat = isExpanded ? -1 : 1
+    let path = CGMutablePath()
+    path.move(to: NSPoint(x: center.x - 3.5, y: center.y - 1.5 * direction))
+    path.addLine(to: NSPoint(x: center.x, y: center.y + 2 * direction))
+    path.addLine(to: NSPoint(x: center.x + 3.5, y: center.y - 1.5 * direction))
+    button.path = path
+    button.fillColor = nil
+    button.strokeColor = (theme.labelAttrs[.foregroundColor] as? NSColor)?.cgColor
+    button.lineWidth = 1.5
+    button.lineCap = .round
+    button.lineJoin = .round
+    let hit = CGPath(rect: NSRect(x: left, y: 0, width: theme.pagingOffset, height: height), transform: nil)
+    return isExpanded ? (button, nil, hit) : (button, hit, nil)
+  }
+
   // Soften corner radius when adjacent points are very close.
   func sign(_ number: NSPoint) -> NSPoint {
     if number.length >= 2 {
@@ -722,6 +926,9 @@ private extension SquirrelView {
 
   func pagingLayer(theme: SquirrelTheme, preeditRect: CGRect) -> (CAShapeLayer, CGPath?, CGPath?) {
     let layer = CAShapeLayer()
+    if theme.isSingleLineLinear {
+      return expansionLayer(theme: theme)
+    }
     guard theme.showPaging && (canPageUp || canPageDown) else { return (layer, nil, nil) }
     guard let firstCandidate = candidateRanges.first, let range = convert(range: firstCandidate) else { return (layer, nil, nil) }
     var height = contentRect(range: range).height
